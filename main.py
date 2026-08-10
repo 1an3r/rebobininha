@@ -1,7 +1,5 @@
 import asyncio
-
 import discord
-from discord import voice_client
 from discord.ext import commands
 import dotenv
 import os
@@ -13,7 +11,6 @@ dotenv.load_dotenv(".env")
 TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_TOKEN = os.getenv("GUILD_TOKEN")
 GUILD = discord.Object(id=GUILD_TOKEN)
-
 discord.utils.setup_logging(root=True)
 logger = logging.getLogger("MyBot")
 logger.setLevel(logging.DEBUG)
@@ -30,7 +27,6 @@ FFMPEG_OPTIONS = {
 }
 
 ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
-
 
 def validate_url(url: str) -> bool:
     parsed = urlparse(url)
@@ -149,7 +145,6 @@ if __name__ == "__main__":
                 await ctx.voice_client.stop()
             else:
                 await ctx.send("Não há nada tocando, a fila provavelmente já está limpa")
-
 
         bot.run(TOKEN, log_handler=None)
 
