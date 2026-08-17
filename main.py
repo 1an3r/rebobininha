@@ -10,8 +10,8 @@ import yt_dlp
 from collections import deque
 
 dotenv.load_dotenv(".env")
-TOKEN = os.getenv("DISCORD_TOKEN")
-GUILD_TOKEN = os.getenv("GUILD_TOKEN")
+TOKEN = os.getenv("DISCORD_TOKEN") or "DISCORD_TOKEN"   # In case there isn't a .env file (and close-sourced)
+GUILD_TOKEN = os.getenv("GUILD_TOKEN") or "GUILD_TOKEN" # Same as above
 GUILD = discord.Object(id=GUILD_TOKEN)
 discord.utils.setup_logging(root=True)
 logger = logging.getLogger("MyBot")
@@ -43,9 +43,9 @@ STREAM_YTDL_OPTIONS = {
 }
 
 URL_REGEX = re.compile(
-    r'^(https?://)'                      # http:// or https://
-    r'([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}'   # domain name
-    r'(:\d+)?(/.*)?$',                   # optional port and path
+    r'^(https?://)'
+    r'([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}'
+    r'(:\d+)?(/.*)?$',
     re.IGNORECASE
 )
 
@@ -58,6 +58,10 @@ ytdl_flat = yt_dlp.YoutubeDL(FLAT_YTDL_OPTIONS)
 ytdl_stream = yt_dlp.YoutubeDL(STREAM_YTDL_OPTIONS)
 
 def format_time(total_seconds: int) -> str:
+    """
+    takes an amount of seconds (integer)
+    returns a formatted time string (either minutes:seconds or hours:minutes:seconds)
+    """
     if not total_seconds:
         return "00:00"
     hours = int(total_seconds // 3600)
@@ -68,6 +72,9 @@ def format_time(total_seconds: int) -> str:
     return f"{minutes}:{seconds:02d}"
 
 def validate_url(url: str) -> bool:
+    """
+    takes an url (str) and validates it through regex returning a bool
+    """
     if not url or not isinstance(url, str):
         return False
 
@@ -77,15 +84,21 @@ def validate_url(url: str) -> bool:
     return True
 
 def extract_url_stream(url: str):
-    info_dict = ytdl_stream.extract_info(url, download=False)
+    """
+    takes an url (str) and returns the direct stream url from ytdlp
+    """
+    info_dict = ytdl_stream.extract_info(url, download=False) or {}
     if "entries" in info_dict:
         info_dict = info_dict["entries"][0]
     return info_dict['url']
 
 def extract_metadata(url: str):
+    """
+    takes an url (str) and returns a dictionary containing title, duration, and the url from ytdlp
+    """
     if not validate_url(url):
         raise ValueError(f"Invalid URL: {url}")
-    info_dict = ytdl_flat.extract_info(url, download=False)
+    info_dict = ytdl_flat.extract_info(url, download=False) or {}
     if "entries" in info_dict:
         info_dict = info_dict["entries"][0]
 
@@ -103,6 +116,8 @@ def extract_metadata(url: str):
     }
 
 async def play_next(voice_client: discord.VoiceClient, song_queue: deque, ctx: commands.Context):
+    """Receives a VoiceClient object, a Deque, and a Context object and sets the next song to play
+    using the queue calling an callback function after current song stopped playing"""
     if len(song_queue) == 0:
         logger.info("Queue ended. Nothing to do.")
         asyncio.run_coroutine_threadsafe(ctx.send("Fila terminada, estou indo embora."), ctx.bot.loop)
@@ -114,22 +129,23 @@ async def play_next(voice_client: discord.VoiceClient, song_queue: deque, ctx: c
         next_song_stream_url = await asyncio.to_thread(extract_url_stream, next_song['url'])
         audio_source = discord.FFmpegPCMAudio(next_song_stream_url, **FFMPEG_OPTIONS)
     except (ValueError, Exception) as e:
-        logger.exception(f"Error reproducing {next_song['url']}: {e}.\nCalling play_next recursively to keep the queue going")
+        logger.exception(f"Error reproducing %s: %s.\nCalling play_next recursively to keep the queue going", next_song['url'], e)
         await ctx.send(f"Erro ao reproduzir a url {next_song['url']}, pulando para o próximo item da fila.")
         await play_next(voice_client, song_queue, ctx)
         return
 
     def after_callback(error):
         if error:
-            logger.error(f"Error while playing: {error}")
+            logger.error("Error while playing: %s", error)
         asyncio.run_coroutine_threadsafe(play_next(voice_client, song_queue, ctx), ctx.bot.loop)
-        logger.debug(f"Called after_callback")
+        logger.debug("Called after_callback")
 
     voice_client.play(audio_source, after=after_callback)
     ctx.bot.song_start_time = time.time()
     asyncio.run_coroutine_threadsafe(ctx.send(f"Tocando agora {next_song['title'] or "!"}"), ctx.bot.loop)
 
 class MyBot(commands.Bot):
+    """bot class, constructor doesn't take arguments."""
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
@@ -141,10 +157,14 @@ class MyBot(commands.Bot):
     async def setup_hook(self) -> None:
         self.tree.copy_global_to(guild=GUILD)
         await self.tree.sync(guild=GUILD)
-        logger.debug(f"Setup hook called to sync commands locally using {GUILD_TOKEN} as the local guild")
+        logger.debug("Setup hook called to sync commands locally using %s as the local guild", GUILD_TOKEN)
 
     async def on_ready(self) -> None:
-        logger.info(f"Logged in as {self.user}!")
+        """
+        overwrides on_ready function
+        executes when bot runs
+        """
+        logger.info("Logged in as %s!", self.user)
 
 if __name__ == "__main__":
     try:
@@ -170,7 +190,7 @@ if __name__ == "__main__":
             if voice_client is None:
                 voice_channel = ctx.author.voice.channel
                 voice_client = await voice_channel.connect()
-                logger.debug(f"Retrieved voiceClient object after connection {voice_client}")
+                logger.debug("Retrieved voiceClient object after connection %s", voice_client)
 
             try:
                 song_data = await asyncio.to_thread(extract_metadata, url)
@@ -178,11 +198,11 @@ if __name__ == "__main__":
                 if not voice_client.is_playing():
                     await play_next(voice_client, ctx.bot.queue, ctx)
                 elif voice_client.is_playing():
-                    await ctx.send(f"Coloquei {song_data['title'] or song_data['url']} na fila!")
+                    await ctx.send("Coloquei {song_data['title'] or song_data['url']} na fila!")
 
             except (Exception, ValueError) as e:
-                logger.exception(f"Error processing url: {e}")
-                await ctx.send("Não consegui processar essa URL!")
+                logger.exception("Error processing url: %s", e)
+                await ctx.send(f"Não consegui processar essa URL! Erro: {e}")
 
         @bot.hybrid_command(name="fila", description="Mostra a fila de músicas")
         async def fila(ctx: commands.Context):
