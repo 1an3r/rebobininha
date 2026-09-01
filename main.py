@@ -9,6 +9,8 @@ import logging
 import yt_dlp
 from collections import deque
 
+from discord.ui import item
+
 dotenv.load_dotenv(".env")
 TOKEN = os.getenv("DISCORD_TOKEN") or "DISCORD_TOKEN"   # In case there isn't a .env file (and close-sourced)
 GUILD_TOKEN = os.getenv("GUILD_TOKEN") or "GUILD_TOKEN" # Same as above
@@ -92,21 +94,29 @@ def extract_url_stream(url: str):
         info_dict = info_dict["entries"][0]
     return info_dict['url']
 
-def extract_metadata(url: str):
+def extract_metadata(query: str):
     """
     takes an url (str) and returns a dictionary containing title, duration, and the url from ytdlp
     """
-    if not validate_url(url):
-        raise ValueError(f"Invalid URL: {url}")
-    info_dict = ytdl_flat.extract_info(url, download=False) or {}
-    if "entries" in info_dict:
+    if not validate_url(query):
+        # raise ValueError(f"Invalid URL: {url}")
+        search_target = "ytsearch1:" + query
+    else:
+        search_target = query.split("&")[0]
+
+    logger.info("Extracting metadata for %s", search_target)
+    info_dict = ytdl_flat.extract_info(search_target, download=False) or {}
+    if "entries" in info_dict and info_dict["entries"]:
         info_dict = info_dict["entries"][0]
+
+    if not info_dict:
+        raise ValueError("Não foi possível encontrar resultados para %s", query)
 
     resolved_url = (
         info_dict.get("webpage_url")
         or info_dict.get("url")
         or info_dict.get("original_url")
-        or url
+        or search_target
     )
 
     return {
@@ -115,9 +125,39 @@ def extract_metadata(url: str):
         'duration': info_dict.get("duration", 0)
     }
 
+def search_multiple(query: str, limit: int = 5) -> list[dict]:
+    """Searches for a query in ytdlp with a limit defaulted to 5"""
+    search_target = f"ytsearch{limit}:{query}"
+    info_dict = ytdl_flat.extract_info(search_target, download=False) or {}
+
+    entries = info_dict.get("entries", [])
+    results = []
+
+    for item in entries:
+        if not item:
+            continue
+        resolved_url = (
+                item.get("webpage_url")
+                or item.get("url")
+                or item.get("original_url")
+        )
+        results.append({
+            'title': item.get("title", "Título Desconhecido"),
+            'url': resolved_url,
+            'duration': item.get("duration", 0)
+        })
+
+    return results
+
+async def connect_to_vc(ctx):
+    voice_channel = ctx.author.voice.channel
+    voice_client = await voice_channel.connect()
+    logger.debug("Retrieved voiceClient object after connection %s", voice_client)
+    return voice_client
+
 async def play_next(voice_client: discord.VoiceClient, song_queue: deque, ctx: commands.Context):
     """Receives a VoiceClient object, a Deque, and a Context object and sets the next song to play
-    using the queue calling an callback function after current song stopped playing"""
+    using the queue calling a callback function after current song stopped playing"""
     if len(song_queue) == 0:
         logger.info("Queue ended. Nothing to do.")
         asyncio.run_coroutine_threadsafe(ctx.send("Fila terminada, estou indo embora."), ctx.bot.loop)
@@ -135,6 +175,7 @@ async def play_next(voice_client: discord.VoiceClient, song_queue: deque, ctx: c
         return
 
     def after_callback(error):
+        """Calls back after voice_client.play(), in a threadsafe coroutine to keep the bot playing without relying on timing loops"""
         if error:
             logger.error("Error while playing: %s", error)
         asyncio.run_coroutine_threadsafe(play_next(voice_client, song_queue, ctx), ctx.bot.loop)
@@ -181,28 +222,81 @@ if __name__ == "__main__":
             await ctx.send("Pong!")
 
         @bot.hybrid_command(name="play", description="Toca uma URL especificada ou coloca ela na fila")
-        async def play(ctx: commands.Context, url: str):
+        async def play(ctx: commands.Context, *, query: str):
             if ctx.author.voice is None:
                 await ctx.send("Você deve estar em um canal de voz para usar esse comando!")
                 return
 
             voice_client = ctx.voice_client
             if voice_client is None:
-                voice_channel = ctx.author.voice.channel
-                voice_client = await voice_channel.connect()
-                logger.debug("Retrieved voiceClient object after connection %s", voice_client)
+                voice_client = await connect_to_vc(ctx)
 
             try:
-                song_data = await asyncio.to_thread(extract_metadata, url)
+                song_data = await asyncio.to_thread(extract_metadata, query)
                 ctx.bot.queue.append(song_data)
                 if not voice_client.is_playing():
                     await play_next(voice_client, ctx.bot.queue, ctx)
                 elif voice_client.is_playing():
-                    await ctx.send("Coloquei {song_data['title'] or song_data['url']} na fila!")
+                    await ctx.send(f"Coloquei {song_data['title'] or song_data['url']} na fila!")
 
             except (Exception, ValueError) as e:
                 logger.exception("Error processing url: %s", e)
                 await ctx.send(f"Não consegui processar essa URL! Erro: {e}")
+
+        @bot.hybrid_command(name="search", description="Procura por uma keyword e mostra os resultados para colocar na fila")
+        async def search(ctx: commands.Context, *, query: str):
+            if ctx.author.voice is None:
+                await ctx.send("Você deve estar em um canal de voz para usar esse comando!")
+                return
+
+            voice_client = ctx.voice_client
+            if voice_client is None:
+                voice_client = await connect_to_vc(ctx)
+
+            results = await asyncio.to_thread(search_multiple, query, 5)
+            if not results:
+                await ctx.send(f"Nenhum resultado encontrado para {query}")
+                return
+
+            options_text = "\n".join(
+                f"**{idx + 1}.** {result['title']} ({format_time(result['duration'])})"
+                for idx, result in enumerate(results)
+            )
+
+            prompt_message = await ctx.send(
+                f"🔎 **Resultados para:** `{query}`\n"
+                f"{options_text}\n\n"
+                f"Digite o **número (1-{len(results)})** correspondente ou `cancelar`:"
+            )
+
+            def check(msg: discord.Message) -> bool:
+                return (
+                    msg.author == ctx.author
+                    and msg.channel == ctx.channel
+                    and (msg.content.isdigit() or msg.content.lower() == "cancelar")
+                )
+
+            try:
+                user_response = await ctx.bot.wait_for("message", check=check, timeout=60.0)
+            except asyncio.TimeoutError:
+                await ctx.send("⏰ Tempo esgotado! Operação cancelada.")
+                return
+
+            if user_response.content.lower() == "cancelar":
+                await ctx.send("Busca cancelada.")
+                return
+
+            selection_index = int(user_response.content) - 1
+            if not (0 <= selection_index < len(results)):
+                await ctx.send("Número inválido. Operação cancelada.")
+                return
+
+            selected_song = results[selection_index]
+            ctx.bot.queue.append(selected_song)
+            if not voice_client.is_playing():
+                await play_next(voice_client, ctx.bot.queue, ctx)
+            else:
+                await ctx.send(f"Coloquei **{selected_song['title']}** na fila!")
 
         @bot.hybrid_command(name="fila", description="Mostra a fila de músicas")
         async def fila(ctx: commands.Context):
