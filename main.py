@@ -181,7 +181,7 @@ async def play_next(voice_client: discord.VoiceClient, song_queue: deque, ctx: c
 
     voice_client.play(audio_source, after=after_callback)
     ctx.bot.song_start_time = time.time()
-    asyncio.run_coroutine_threadsafe(ctx.send(f"Tocando agora {next_song['title'] or "!"}"), ctx.bot.loop)
+    asyncio.run_coroutine_threadsafe(ctx.send(f"Tocando agora: {next_song['title'] or "!"} {next_song['duration']}"), ctx.bot.loop)
 
 class MyBot(commands.Bot):
     """bot class, constructor doesn't take arguments."""
@@ -306,7 +306,7 @@ if __name__ == "__main__":
                 await ctx.send("Não há nada tocando, então não pode haver uma fila.")
                 return
 
-            description = "\n".join(f"{idx + 1}. {item['title'] or "Undefined"}" for idx, item in enumerate(ctx.bot.queue))
+            description = "\n".join(f"{idx + 1}. {item['title'] or "Undefined"} - ({item['duration']})" for idx, item in enumerate(ctx.bot.queue))
             duration_seconds = ctx.bot.current_song['duration']
             elapsed = int(time.time() - ctx.bot.song_start_time)
             formatted_time = f"{format_time(elapsed)} | {format_time(duration_seconds)}"
