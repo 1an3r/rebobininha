@@ -9,8 +9,6 @@ import logging
 import yt_dlp
 from collections import deque
 
-from discord.ui import item
-
 dotenv.load_dotenv(".env")
 TOKEN = os.getenv("DISCORD_TOKEN") or "DISCORD_TOKEN"   # In case there isn't a .env file (and close-sourced)
 GUILD_TOKEN = os.getenv("GUILD_TOKEN") or "GUILD_TOKEN" # Same as above
