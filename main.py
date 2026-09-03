@@ -237,7 +237,7 @@ if __name__ == "__main__":
                 if not voice_client.is_playing():
                     await play_next(voice_client, ctx.bot.queue, ctx)
                 elif voice_client.is_playing():
-                    await ctx.send(f"Coloquei {song_data['title'] or song_data['url']} na fila!")
+                    await ctx.send(f"Coloquei **{song_data['title'] or song_data['url']}** ({format_time(song_data['duration'])}) na fila!")
 
             except (Exception, ValueError) as e:
                 logger.exception("Error processing url: %s", e)
@@ -296,7 +296,7 @@ if __name__ == "__main__":
             if not voice_client.is_playing():
                 await play_next(voice_client, ctx.bot.queue, ctx)
             else:
-                await ctx.send(f"Coloquei **{selected_song['title']}** na fila!")
+                await ctx.send(f"Coloquei **{selected_song['title']}** ({format_time(selected_song['duration'])}) na fila!")
 
         @bot.hybrid_command(name="fila", description="Mostra a fila de músicas")
         async def fila(ctx: commands.Context):
@@ -312,7 +312,7 @@ if __name__ == "__main__":
             duration_seconds = ctx.bot.current_song['duration']
             elapsed = int(time.time() - ctx.bot.song_start_time)
             formatted_time = f"{format_time(elapsed)} | {format_time(duration_seconds)}"
-            await ctx.send(f"Tocando agora: {current_title} {formatted_time}\n**FILA ATUAL:**\n{description}")
+            await ctx.send(f"Tocando agora: **{current_title}** ({formatted_time})\n**FILA ATUAL:**\n{description}")
 
         @bot.hybrid_command(name="skip", description="Pula a música atual")
         async def skip(ctx: commands.Context):
@@ -322,10 +322,23 @@ if __name__ == "__main__":
             ctx.voice_client.stop()
             await ctx.send(f"Pulando: {ctx.bot.current_song['title']}")
 
+        @bot.hybrid_command(name="pop", description="Tira uma música da fila (aceita um índice da fila como argumento)")
+        async def pop(ctx: commands.Context, idx: int):
+            if not ctx.bot.queue:
+                await ctx.send("Não há uma fila para retirar algo...")
+                return
+
+            if idx > len(ctx.bot.queue):
+                await ctx.send(f"Índice inválido. Tamanho atual da fila é {len(ctx.bot.queue)}.\n!fila para ver a fila.")
+                return
+
+            await ctx.send(f"Popando {ctx.bot.queue[idx-1]['title']} da fila.")
+            del ctx.bot.queue[idx-1]
+
         @bot.hybrid_command(name="clear", description="Para de tocar e limpa a fila")
         async def clear(ctx: commands.Context):
             if not ctx.voice_client or not ctx.voice_client.is_playing():
-                await ctx.send("Não tem nada tocando no memento!")
+                await ctx.send("Não tem nada tocando no momento!")
                 return
             if len(ctx.bot.queue) == 0:
                 await ctx.send("A fila já está vazia, vou interromper a reprodução atual!")
