@@ -14,11 +14,13 @@ TOKEN = os.getenv("DISCORD_TOKEN") or "DISCORD_TOKEN"   # In case there isn't a 
 GUILD_TOKEN = os.getenv("GUILD_TOKEN") or "GUILD_TOKEN" # Same as above
 GUILD = discord.Object(id=GUILD_TOKEN)
 discord.utils.setup_logging(root=True)
-logger = logging.getLogger("MyBot")
+logger = logging.getLogger("Rebobininha")
 logger.setLevel(logging.DEBUG)
 
 FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+    'before_options': ( '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 '
+                        '-user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"'
+),
     'options': '-vn',
 }
 
@@ -36,8 +38,7 @@ STREAM_YTDL_OPTIONS = {
     'format': 'bestaudio/best',
     'extractor_args': {
         'youtube': {
-            'player_client': ['android', 'web'],
-            'skip': ['configs', 'webpage']
+            'player_client': ['tv_embedded', 'web_embedded', 'web'],
         }
     }
 }
