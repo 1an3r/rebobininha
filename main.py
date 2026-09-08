@@ -148,6 +148,7 @@ def search_multiple(query: str, limit: int = 5) -> list[dict]:
     return results
 
 async def connect_to_vc(ctx):
+    """Receives the ctx and connects to the voice channel tied to the ctx.author"""
     voice_channel = ctx.author.voice.channel
     voice_client = await voice_channel.connect()
     logger.debug("Retrieved voiceClient object after connection %s", voice_client)
@@ -179,11 +180,11 @@ async def play_next(voice_client: discord.VoiceClient, song_queue: deque, ctx: c
         asyncio.run_coroutine_threadsafe(play_next(voice_client, song_queue, ctx), ctx.bot.loop)
         logger.debug("Called after_callback")
 
+    asyncio.run_coroutine_threadsafe(ctx.send(f"Tocando agora: **{next_song['title'] or "!"}** ({format_time(next_song['duration'])})"), ctx.bot.loop)
     voice_client.play(audio_source, after=after_callback)
     ctx.bot.song_start_time = time.time()
-    asyncio.run_coroutine_threadsafe(ctx.send(f"Tocando agora: {next_song['title'] or "!"} {next_song['duration']}"), ctx.bot.loop)
 
-class MyBot(commands.Bot):
+class Rebobininha(commands.Bot):
     """bot class, constructor doesn't take arguments."""
     def __init__(self):
         intents = discord.Intents.default()
@@ -207,7 +208,7 @@ class MyBot(commands.Bot):
 
 if __name__ == "__main__":
     try:
-        bot = MyBot()
+        bot = Rebobininha()
 
         # THIS ONLY EXISTS HERE FOR A REFERENCE TO THE OLD COMMAND FORMAT
         @bot.tree.command(name="old", description="Antigo formato de comandos")
@@ -217,10 +218,13 @@ if __name__ == "__main__":
         # PREFER THIS AS A BETTER COMMAND ALTERNATIVE, IT WORKS FOR BOTH PREFIX AND SLASH COMMANDS
         @bot.hybrid_command(name="ping", description="Responde com Pong!")
         async def ping(ctx: commands.Context):
+            """Answers with pong"""
             await ctx.send("Pong!")
 
         @bot.hybrid_command(name="play", description="Toca uma URL especificada ou coloca ela na fila")
         async def play(ctx: commands.Context, *, query: str):
+            """Receives a query in discord chat and plays the song.
+            Query can be either url or 1 or more keyword, in the case of a keyword (or group) it searches and plays the first result."""
             if ctx.author.voice is None:
                 await ctx.send("Você deve estar em um canal de voz para usar esse comando!")
                 return
@@ -243,6 +247,7 @@ if __name__ == "__main__":
 
         @bot.hybrid_command(name="search", description="Procura por uma keyword e mostra os resultados para colocar na fila")
         async def search(ctx: commands.Context, *, query: str):
+            """Searches yt for a query (can be one or more keywords) and displays N results, waiting for user to pick one and reproduces picked result."""
             if ctx.author.voice is None:
                 await ctx.send("Você deve estar em um canal de voz para usar esse comando!")
                 return
@@ -296,8 +301,9 @@ if __name__ == "__main__":
             else:
                 await ctx.send(f"Coloquei **{selected_song['title']}** ({format_time(selected_song['duration'])}) na fila!")
 
-        @bot.hybrid_command(name="fila", description="Mostra a fila de músicas")
-        async def fila(ctx: commands.Context):
+        @bot.hybrid_command(name="queue", description="Mostra a fila de músicas")
+        async def queue(ctx: commands.Context):
+            """Shows the current queue if there is one."""
             current_title = ctx.bot.current_song['title'] if ctx.bot.current_song else "Nenhuma"
             if not ctx.voice_client or len(ctx.bot.queue) == 0:
                 await ctx.send("Não há uma fila para ser mostrada.")
@@ -306,7 +312,7 @@ if __name__ == "__main__":
                 await ctx.send("Não há nada tocando, então não pode haver uma fila.")
                 return
 
-            description = "\n".join(f"{idx + 1}. {item['title'] or "Undefined"} - ({item['duration']})" for idx, item in enumerate(ctx.bot.queue))
+            description = "\n".join(f"{idx + 1}. *{item['title'] or "Undefined"}* - ({item['duration']})" for idx, item in enumerate(ctx.bot.queue))
             duration_seconds = ctx.bot.current_song['duration']
             elapsed = int(time.time() - ctx.bot.song_start_time)
             formatted_time = f"{format_time(elapsed)} | {format_time(duration_seconds)}"
@@ -314,20 +320,22 @@ if __name__ == "__main__":
 
         @bot.hybrid_command(name="skip", description="Pula a música atual")
         async def skip(ctx: commands.Context):
+            """Skips current reproduction if there is one."""
             if not ctx.voice_client or not ctx.voice_client.is_playing():
                 await ctx.send("Não há nada tocando no momento.")
                 return
             ctx.voice_client.stop()
-            await ctx.send(f"Pulando: {ctx.bot.current_song['title']}")
+            await ctx.send(f"Pulando: **{ctx.bot.current_song['title']}** ({ctx.bot.current_song['duration']})")
 
         @bot.hybrid_command(name="pop", description="Tira uma música da fila (aceita um índice da fila como argumento)")
         async def pop(ctx: commands.Context, idx: int):
+            """Pop index out of the queue if there is one."""
             if not ctx.bot.queue:
                 await ctx.send("Não há uma fila para retirar algo...")
                 return
 
             if idx > len(ctx.bot.queue):
-                await ctx.send(f"Índice inválido. Tamanho atual da fila é {len(ctx.bot.queue)}.\n!fila para ver a fila.")
+                await ctx.send(f"Índice inválido. Tamanho atual da fila é {len(ctx.bot.queue)}.\n!queue para ver a fila.")
                 return
 
             await ctx.send(f"Popando {ctx.bot.queue[idx-1]['title']} da fila.")
@@ -335,6 +343,7 @@ if __name__ == "__main__":
 
         @bot.hybrid_command(name="clear", description="Para de tocar e limpa a fila")
         async def clear(ctx: commands.Context):
+            """Stops current reproduction if there is one and clears the queue."""
             if not ctx.voice_client or not ctx.voice_client.is_playing():
                 await ctx.send("Não tem nada tocando no momento!")
                 return
@@ -346,15 +355,16 @@ if __name__ == "__main__":
             ctx.voice_client.stop()
             await ctx.send("Limpei a fila e interrompi a reprodução atual.")
 
-        @bot.hybrid_command(name="tocando", description="Mostra dados da reprodução atual")
-        async def tocando(ctx: commands.Context):
+        @bot.hybrid_command(name="playing", description="Mostra dados da reprodução atual")
+        async def playing(ctx: commands.Context):
+            """Displays current reproduction if there is one."""
             if not ctx.voice_client or not ctx.voice_client.is_playing() or not ctx.bot.current_song:
                 await ctx.send("Não tem nada tocando no momento!")
                 return
             duration_seconds = ctx.bot.current_song['duration']
             elapsed = int(time.time() - ctx.bot.song_start_time)
             formatted_time = f"{format_time(elapsed)} | {format_time(duration_seconds)}"
-            await ctx.send(f"Tocando agora: {ctx.bot.current_song['title']} {formatted_time}")
+            await ctx.send(f"Tocando agora: **{ctx.bot.current_song['title']}** ({formatted_time})")
 
         bot.run(TOKEN, log_handler=None)
 
