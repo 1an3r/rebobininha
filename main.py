@@ -38,7 +38,7 @@ STREAM_YTDL_OPTIONS = {
     'format': 'bestaudio/best',
     'extractor_args': {
         'youtube': {
-            'player_client': ['tv_embedded', 'web_embedded', 'web'],
+            'player_client': ['android', 'ios   '],
         }
     }
 }
@@ -246,9 +246,8 @@ if __name__ == "__main__":
                 logger.exception("Error processing url: %s", e)
                 await ctx.send(f"Não consegui processar essa URL! Erro: {e}")
 
-        @bot.hybrid_command(name="search", description="Procura por uma keyword e mostra os resultados para colocar na fila")
-        async def search(ctx: commands.Context, *, query: str):
-            """Searches yt for a query (can be one or more keywords) and displays N results, waiting for user to pick one and reproduces picked result."""
+        @bot.hybrid_command(name="prio", description="Coloca uma música na fila com prioridade máxima (próxima a tocar)")
+        async def prio(ctx: commands.Context, *, query: str):
             if ctx.author.voice is None:
                 await ctx.send("Você deve estar em um canal de voz para usar esse comando!")
                 return
@@ -256,6 +255,30 @@ if __name__ == "__main__":
             voice_client = ctx.voice_client
             if voice_client is None:
                 voice_client = await connect_to_vc(ctx)
+
+            try:
+                song_data = await asyncio.to_thread(extract_metadata, query)
+                ctx.bot.queue.appendleft(song_data)
+                if not voice_client.is_playing():
+                    await play_next(voice_client, ctx.bot.queue, ctx)
+                elif voice_client.is_playing():
+                    await ctx.send(f"Coloquei **{song_data['title'] or song_data['url']}** ({format_time(song_data['duration'])}) no topo da fila!")
+
+            except (Exception, ValueError) as e:
+                logger.exception("Error processing url: %s", e)
+                await ctx.send(f"Não consegui processar essa URL! Erro: {e}")
+
+        @bot.hybrid_command(name="search", description="Procura por uma keyword e mostra os resultados para colocar na fila")
+        async def search(ctx: commands.Context, *, query: str):
+            """Searches yt for a query (can be one or more keywords) and displays N results, waiting for user to pick one and reproduces picked result."""
+            if ctx.author.voice is None:
+                await ctx.send("Você deve estar em um canal de voz para usar esse comando!")
+                return
+
+            if ctx.voice_client is None or not ctx.voice_client.is_connected():
+                voice_client = await connect_to_vc(ctx)
+            else:
+                voice_client = ctx.voice_client
 
             results = await asyncio.to_thread(search_multiple, query, 5)
             if not results:
@@ -313,7 +336,7 @@ if __name__ == "__main__":
                 await ctx.send("Não há nada tocando, então não pode haver uma fila.")
                 return
 
-            description = "\n".join(f"{idx + 1}. *{item['title'] or "Undefined"}* - ({item['duration']})" for idx, item in enumerate(ctx.bot.queue))
+            description = "\n".join(f"{idx + 1}. *{item['title'] or "Undefined"}* - ({format_time(item['duration'])})" for idx, item in enumerate(ctx.bot.queue))
             duration_seconds = ctx.bot.current_song['duration']
             elapsed = int(time.time() - ctx.bot.song_start_time)
             formatted_time = f"{format_time(elapsed)} | {format_time(duration_seconds)}"
